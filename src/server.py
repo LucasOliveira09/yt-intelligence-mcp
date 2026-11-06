@@ -4,11 +4,83 @@ from src.analytics.outliers import analyze_outliers
 from src.auth import load_all_accounts
 from src.config import DEFAULT_COMPETITOR_LIMIT, DEFAULT_OUTLIER_THRESHOLD
 from src.services.competitor import fetch_channel_videos, search_youtube_videos
+from src.services.niche_radar import scan_niche_radar
 from src.services.owned import get_channel_overview
+from src.services.owned_analytics import fetch_channel_health_report
 from src.services.transcripts import extract_transcript
+from src.services.video_deep_dive import get_video_deep_dive
 
 mcp = FastMCP("yt-intelligence", dependencies=["yt-dlp", "google-api-python-client"])
 
+
+# ==========================================
+# 1. GESTÃO E AUDITORIA DE CANAIS PRÓPRIOS
+# ==========================================
+
+@mcp.tool()
+def yt_list_my_channels() -> List[Dict[str, Any]]:
+    """
+    Lista todas as contas próprias do YouTube autenticadas via OAuth2 no servidor.
+    Exibe alias (ex: canal_dev, galuzera), nome do canal e channel_id.
+    """
+    accounts = load_all_accounts()
+    return [
+        {
+            "alias": alias,
+            "channel_title": data.get("channel_title"),
+            "channel_id": data.get("channel_id"),
+        }
+        for alias, data in accounts.items()
+    ]
+
+
+@mcp.tool()
+def yt_my_channel_overview(account_alias: str) -> Dict[str, Any]:
+    """
+    Retorna métricas em tempo real de um canal próprio autenticado: total de inscritos,
+    visualizações acumuladas, total de vídeos e últimos uploads.
+    """
+    return get_channel_overview(account_alias)
+
+
+@mcp.tool()
+def yt_channel_audit_report(account_alias: str, days: int = 30) -> Dict[str, Any]:
+    """
+    Gera um relatório de auditoria e diagnóstico estratégico do canal próprio nos últimos N dias.
+    Avalia retenção média, conversão de inscritos, fontes de tráfego (Busca vs Sugeridos/Home)
+    e prescreve um plano de ação para melhorar as próximas publicações.
+    """
+    return fetch_channel_health_report(account_alias, days=days)
+
+
+# ==========================================
+# 2. RAIO-X PROFUNDO DE VÍDEOS
+# ==========================================
+
+@mcp.tool()
+def yt_video_deep_dive(video_url_or_id: str) -> Dict[str, Any]:
+    """
+    Executa um Raio-X completo em qualquer vídeo do YouTube (próprio ou concorrente).
+    Extrai:
+    - Tags reais ocultas cadastradas pelo criador.
+    - Taxa de like e taxa de comentários (nível real de engajamento).
+    - Tópicos classificados pelo algoritmo do YouTube.
+    - Mineração de dúvidas da audiência nos comentários (ideias de conteúdo que o concorrente deixou passar).
+    """
+    return get_video_deep_dive(video_url_or_id)
+
+
+@mcp.tool()
+def yt_get_video_transcript(video_url_or_id: str, lang: str = "pt") -> Dict[str, Any]:
+    """
+    Extrai a transcrição/legendas de um vídeo do YouTube para dissecação de roteiro e estrutura de gancho.
+    """
+    return extract_transcript(video_url_or_id, lang=lang)
+
+
+# ==========================================
+# 3. INTELIGÊNCIA DE CONCORRÊNCIA & OUTLIERS (ZERO COTA)
+# ==========================================
 
 @mcp.tool()
 def yt_analyze_competitor(
@@ -18,7 +90,7 @@ def yt_analyze_competitor(
 ) -> Dict[str, Any]:
     """
     Analisa os vídeos recentes de um canal concorrente no YouTube.
-    Calcula a mediana de visualizações do canal e identifica os vídeos que furaram a bolha (outliers).
+    Calcula a mediana de visualizações e identifica os vídeos que furaram a bolha (outliers).
     Zero consumo de cota da API oficial do Google.
     """
     channel_data = fetch_channel_videos(channel, limit=limit)
@@ -47,8 +119,8 @@ def yt_detect_outliers(
     threshold: float = 2.0,
 ) -> List[Dict[str, Any]]:
     """
-    Retorna apenas a lista filtrada de vídeos outliers de um canal (vídeos com performance >= threshold da mediana).
-    Ideal para engenharia reversa de títulos e pautas que performaram acima da média.
+    Retorna apenas a lista filtrada de vídeos outliers de um canal (performance >= threshold da mediana).
+    Essencial para modelagem de títulos, ganchos e temas com tração comprovada.
     """
     channel_data = fetch_channel_videos(channel, limit=limit)
     videos = channel_data.get("videos", [])
@@ -63,7 +135,7 @@ def yt_compare_competitors(
 ) -> List[Dict[str, Any]]:
     """
     Compara múltiplos canais concorrentes lado a lado.
-    Retorna inscritos, mediana de views e o maior outlier de cada canal.
+    Compara base de inscritos, mediana de views e o principal vídeo outlier de cada criador.
     """
     comparison = []
     for ch in channels:
@@ -90,50 +162,29 @@ def yt_compare_competitors(
     return comparison
 
 
+# ==========================================
+# 4. RADAR DE NICHOS E TENDÊNCIAS
+# ==========================================
+
 @mcp.tool()
-def yt_search_trends(
-    query: str,
-    limit: int = 15,
-) -> List[Dict[str, Any]]:
+def yt_niche_radar(topic: str, sample_size: int = 25) -> Dict[str, Any]:
     """
-    Busca vídeos no YouTube sobre um nicho ou pauta sem gastar cota de API.
+    Escaneia um nicho ou termo de busca no YouTube.
+    Identifica:
+    - Canais dominantes no topo das buscas.
+    - Termos-chave e palavras mais repetidas nos títulos com alta performance.
+    - Duração média ideal dos vídeos para reter o público desse nicho.
+    - Padrão de formato recomendado (rápido, médio ou long-form).
+    """
+    return scan_niche_radar(topic, sample_size=sample_size)
+
+
+@mcp.tool()
+def yt_search_trends(query: str, limit: int = 15) -> List[Dict[str, Any]]:
+    """
+    Busca rápida de vídeos recentes no YouTube sobre um tópico sem gastar cota de API.
     """
     return search_youtube_videos(query, limit=limit)
-
-
-@mcp.tool()
-def yt_get_video_transcript(
-    video_url_or_id: str,
-    lang: str = "pt",
-) -> Dict[str, Any]:
-    """
-    Tenta extrair transcrição / legendas de um vídeo do YouTube.
-    """
-    return extract_transcript(video_url_or_id, lang=lang)
-
-
-@mcp.tool()
-def yt_list_my_channels() -> List[Dict[str, Any]]:
-    """
-    Lista as contas próprias do YouTube cadastradas e autenticadas via OAuth2.
-    """
-    accounts = load_all_accounts()
-    return [
-        {
-            "alias": alias,
-            "channel_title": data.get("channel_title"),
-            "channel_id": data.get("channel_id"),
-        }
-        for alias, data in accounts.items()
-    ]
-
-
-@mcp.tool()
-def yt_my_channel_overview(account_alias: str) -> Dict[str, Any]:
-    """
-    Puxa visão geral de métricas de uma conta própria autenticada (inscritos, views totais, vídeos recentes).
-    """
-    return get_channel_overview(account_alias)
 
 
 if __name__ == "__main__":
