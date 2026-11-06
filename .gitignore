@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Environment and sensitive data
+.env
+*.env
+client_secret*.json
+credentials.json
+tokens/
+data/accounts.json
+data/*.db
+data/*.sqlite3
+
+# Logs & scratch
+logs/
+*.log
+.cache/
+.DS_Store
