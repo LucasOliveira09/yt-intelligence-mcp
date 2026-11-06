@@ -1,0 +1,185 @@
+import sys
+from typing import Optional
+import typer
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+from src.analytics.outliers import analyze_outliers
+from src.auth import finish_auth_flow, load_all_accounts, remove_account, start_auth_flow
+from src.services.competitor import fetch_channel_videos, search_youtube_videos
+from src.services.owned import get_channel_overview
+
+app = typer.Typer(help="YT Intelligence CLI — vidIQ alternativo direto na VPS.")
+console = Console()
+
+
+@app.command("analyze")
+def analyze(
+    channel: str = typer.Argument(..., help="Handle (@canal) ou URL do canal concorrente"),
+    limit: int = typer.Option(30, "--limit", "-l", help="Quantidade de vídeos recentes a analisar"),
+    threshold: float = typer.Option(2.0, "--threshold", "-t", help="Multiplicador mínimo para ser considerado outlier"),
+):
+    """
+    Analisa os vídeos recentes de um canal concorrente e identifica outliers de audiência (Zero Cota).
+    """
+    with console.status(f"[bold green]Minerando vídeos de {channel}...[/bold green]"):
+        channel_data = fetch_channel_videos(channel, limit=limit)
+
+    if channel_data.get("error"):
+        console.print(f"[bold red]Erro ao buscar canal:[/bold red] {channel_data['error']}")
+        raise typer.Exit(code=1)
+
+    videos = channel_data.get("videos", [])
+    if not videos:
+        console.print("[yellow]Nenhum vídeo retornado para este canal.[/yellow]")
+        raise typer.Exit()
+
+    analysis = analyze_outliers(videos, threshold=threshold)
+
+    # Header info
+    title = channel_data.get("channel_title") or channel
+    followers = channel_data.get("followers_count")
+    followers_str = f"{followers:,}" if followers else "N/A"
+
+    console.print(Panel(
+        f"[bold cyan]Canal:[/bold cyan] {title}\n"
+        f"[bold cyan]Inscritos:[/bold cyan] {followers_str}\n"
+        f"[bold cyan]Amostra:[/bold cyan] {analysis['sample_size']} vídeos analisados\n"
+        f"[bold cyan]Mediana de Views:[/bold cyan] {analysis['median_views']:,}\n"
+        f"[bold cyan]Média de Views:[/bold cyan] {analysis['mean_views']:,}\n"
+        f"[bold cyan]Outliers Encontrados:[/bold cyan] [bold yellow]{analysis['outliers_count']}[/bold yellow]",
+        title="🎯 Inteligência de Concorrência",
+        expand=False,
+    ))
+
+    # Outliers Table
+    table = Table(title="🔥 Vídeos Outliers (Furaram a Bolha do Canal)", show_lines=True)
+    table.add_column("Score", style="bold magenta", justify="right")
+    table.add_column("Classificação", style="bold")
+    table.add_column("Views", justify="right")
+    table.add_column("Título", style="white")
+    table.add_column("URL", style="dim blue")
+
+    for v in analysis["outliers"]:
+        tier_style = "[bold red]MEGA VIRAL 🔥[/bold red]" if v["tier"] == "MEGA_VIRAL" else "[bold green]OUTLIER 🚀[/bold green]"
+        table.add_row(
+            f"{v['multiplier']}x",
+            tier_style,
+            f"{v['view_count']:,}",
+            v["title"][:75] + ("..." if len(v["title"]) > 75 else ""),
+            v["url"],
+        )
+
+    if analysis["outliers"]:
+        console.print(table)
+    else:
+        console.print("[yellow]Nenhum vídeo superou o limiar de outlier nesta amostra recente.[/yellow]")
+
+
+@app.command("search")
+def search(
+    query: str = typer.Argument(..., help="Termo de busca no YouTube"),
+    limit: int = typer.Option(10, "--limit", "-l", help="Quantidade de vídeos"),
+):
+    """
+    Busca vídeos no YouTube sobre um tópico específico (Zero Cota).
+    """
+    with console.status(f"[bold green]Buscando vídeos para '{query}'...[/bold green]"):
+        results = search_youtube_videos(query, limit=limit)
+
+    table = Table(title=f"Resultados de Busca: '{query}'", show_lines=True)
+    table.add_column("#", justify="right")
+    table.add_column("Título", style="white")
+    table.add_column("Canal / Uploader", style="cyan")
+    table.add_column("URL", style="dim blue")
+
+    for i, item in enumerate(results, start=1):
+        table.add_row(
+            str(i),
+            item.get("title", "")[:80],
+            item.get("channel") or item.get("uploader") or "N/A",
+            item.get("url") or "",
+        )
+
+    console.print(table)
+
+
+@app.command("add-account")
+def add_account(
+    alias: str = typer.Argument(..., help="Identificador da conta (ex: canal_dev, galuzera)"),
+):
+    """
+    Inicia o fluxo de autorização OAuth2 Google na VPS.
+    """
+    flow_res = start_auth_flow(alias)
+    if flow_res.get("error"):
+        console.print(f"[bold red]Erro:[/bold red] {flow_res.get('message')}")
+        raise typer.Exit(code=1)
+
+    console.print(Panel(
+        f"[bold yellow]URL de Autorização:[/bold yellow]\n{flow_res['auth_url']}\n\n"
+        f"[bold cyan]Instruções:[/bold cyan]\n{flow_res['instructions']}",
+        title=f"Conectar Conta Google: {alias}",
+        expand=False,
+    ))
+
+    code = typer.prompt("Cole aqui o código de autorização ou a URL de redirecionamento")
+    with console.status("[bold green]Trocando token...[/bold green]"):
+        res = finish_auth_flow(alias, code)
+
+    if res.get("status") == "success":
+        console.print(f"[bold green]✓ Sucesso![/bold green] Canal '[bold cyan]{res['channel_title']}[/bold cyan]' conectado como '[bold]{alias}[/bold]'.")
+    else:
+        console.print(f"[bold red]Falha na autorização:[/bold red] {res.get('message')}")
+
+
+@app.command("list-accounts")
+def list_accounts():
+    """
+    Lista todas as contas próprias conectadas.
+    """
+    accounts = load_all_accounts()
+    if not accounts:
+        console.print("[yellow]Nenhuma conta conectada ainda. Use 'python -m src.cli add-account <alias>'[/yellow]")
+        return
+
+    table = Table(title="Contas Conectadas", show_lines=True)
+    table.add_column("Alias", style="bold cyan")
+    table.add_column("Título do Canal", style="white")
+    table.add_column("Channel ID", style="dim")
+
+    for alias, data in accounts.items():
+        table.add_row(
+            alias,
+            data.get("channel_title") or "N/A",
+            data.get("channel_id") or "N/A",
+        )
+
+    console.print(table)
+
+
+@app.command("remove-account")
+def rm_account(
+    alias: str = typer.Argument(..., help="Alias da conta a remover"),
+):
+    """
+    Remove uma conta conectada.
+    """
+    if remove_account(alias):
+        console.print(f"[bold green]✓ Conta '{alias}' removida com sucesso.[/bold green]")
+    else:
+        console.print(f"[bold red]Conta '{alias}' não encontrada.[/bold red]")
+
+
+@app.command("serve")
+def serve():
+    """
+    Inicia o servidor MCP FastMCP via stdio.
+    """
+    from src.server import mcp
+    mcp.run()
+
+
+if __name__ == "__main__":
+    app()
