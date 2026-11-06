@@ -264,4 +264,15 @@ def yt_mine_viral_gringo_ideas(
 
 
 if __name__ == "__main__":
-    mcp.run()
+    import os
+    transport = os.getenv("MCP_TRANSPORT", "stdio").lower()
+    host = os.getenv("MCP_HOST", "127.0.0.1")
+    port = int(os.getenv("MCP_PORT", "8765"))
+
+    if transport in ("sse", "http"):
+        mcp.settings.host = host
+        mcp.settings.port = port
+        print(f"Starting YT Intelligence MCP Server over SSE at http://{host}:{port}/sse")
+        mcp.run(transport="sse")
+    else:
+        mcp.run(transport="stdio")
