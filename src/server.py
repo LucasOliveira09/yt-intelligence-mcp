@@ -5,6 +5,7 @@ from src.auth import load_all_accounts
 from src.config import DEFAULT_COMPETITOR_LIMIT, DEFAULT_OUTLIER_THRESHOLD
 from src.services.competitor import fetch_channel_videos, search_youtube_videos
 from src.services.content_arbitrage import find_viral_gringo_arbitrage
+from src.services.flexible_search import search_youtube_flexible
 from src.services.niche_radar import scan_niche_radar
 from src.services.owned import get_channel_overview
 from src.services.owned_analytics import fetch_channel_health_report
@@ -194,6 +195,43 @@ def yt_niche_radar(topic: str, sample_size: int = 25) -> Dict[str, Any]:
     - Padrão de formato recomendado (rápido, médio ou long-form).
     """
     return scan_niche_radar(topic, sample_size=sample_size)
+
+
+@mcp.tool()
+def yt_search_flexible(
+    query: str,
+    sort_by: str = "relevance",
+    upload_period: Optional[str] = None,
+    duration: Optional[str] = None,
+    content_type: str = "video",
+    min_views: Optional[int] = None,
+    max_views: Optional[int] = None,
+    exclude_shorts: bool = False,
+    limit: int = 20,
+) -> Dict[str, Any]:
+    """
+    Motor de busca completo e ultra-flexível do YouTube sem limite de cota de API.
+    Permite filtrar exatamente o que você precisa:
+    - sort_by: 'relevance', 'upload_date' (mais recentes primeiro), 'view_count' (mais vistos), 'rating'
+    - upload_period: 'hour', 'today', 'this_week', 'this_month', 'this_year', ou None (todos)
+    - duration: 'short' (<4 min), 'medium' (4-20 min), 'long' (>20 min), ou None (qualquer)
+    - content_type: 'video', 'channel' (procurar criadores), 'playlist'
+    - min_views: filtrar apenas vídeos acima de X visualizações
+    - max_views: filtrar canais gigantes para achar canais pequenos/médios
+    - exclude_shorts: True para ignorar Shorts (vídeos <= 60s) e focar em conteúdo longo
+    - limit: quantidade de resultados (padrão 20)
+    """
+    return search_youtube_flexible(
+        query=query,
+        sort_by=sort_by,
+        upload_period=upload_period,
+        duration=duration,
+        content_type=content_type,
+        min_views=min_views,
+        max_views=max_views,
+        exclude_shorts=exclude_shorts,
+        limit=limit,
+    )
 
 
 @mcp.tool()

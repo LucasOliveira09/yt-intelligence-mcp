@@ -9,6 +9,7 @@ from src.analytics.outliers import analyze_outliers
 from src.auth import finish_auth_flow, load_all_accounts, remove_account, start_auth_flow
 from src.services.competitor import fetch_channel_videos, search_youtube_videos
 from src.services.content_arbitrage import find_viral_gringo_arbitrage
+from src.services.flexible_search import search_youtube_flexible
 from src.services.owned import get_channel_overview
 
 app = typer.Typer(help="YT Intelligence CLI — vidIQ alternativo direto na VPS.")
@@ -81,25 +82,41 @@ def analyze(
 @app.command("search")
 def search(
     query: str = typer.Argument(..., help="Termo de busca no YouTube"),
-    limit: int = typer.Option(10, "--limit", "-l", help="Quantidade de vídeos"),
+    sort: str = typer.Option("relevance", "--sort", "-s", help="relevance | upload_date | view_count | rating"),
+    period: Optional[str] = typer.Option(None, "--period", "-p", help="hour | today | this_week | this_month | this_year"),
+    duration: Optional[str] = typer.Option(None, "--duration", "-d", help="short | medium | long"),
+    min_views: Optional[int] = typer.Option(None, "--min-views", help="Mínimo de views"),
+    exclude_shorts: bool = typer.Option(False, "--no-shorts", help="Ignorar Shorts"),
+    limit: int = typer.Option(15, "--limit", "-l", help="Quantidade de vídeos"),
 ):
     """
-    Busca vídeos no YouTube sobre um tópico específico (Zero Cota).
+    Busca ultra-flexível no YouTube com filtros de data, visualizações, duração e relevância (Zero Cota).
     """
     with console.status(f"[bold green]Buscando vídeos para '{query}'...[/bold green]"):
-        results = search_youtube_videos(query, limit=limit)
+        res = search_youtube_flexible(
+            query=query,
+            sort_by=sort,
+            upload_period=period,
+            duration=duration,
+            min_views=min_views,
+            exclude_shorts=exclude_shorts,
+            limit=limit,
+        )
 
-    table = Table(title=f"Resultados de Busca: '{query}'", show_lines=True)
-    table.add_column("#", justify="right")
+    results = res.get("resultados", [])
+    table = Table(title=f"Resultados de Busca: '{query}' ({len(results)} itens)", show_lines=True)
+    table.add_column("Views", justify="right", style="bold magenta")
+    table.add_column("Duração", justify="center", style="dim")
     table.add_column("Título", style="white")
     table.add_column("Canal / Uploader", style="cyan")
     table.add_column("URL", style="dim blue")
 
-    for i, item in enumerate(results, start=1):
+    for item in results:
         table.add_row(
-            str(i),
-            item.get("title", "")[:80],
-            item.get("channel") or item.get("uploader") or "N/A",
+            item.get("views_formatted") or "N/A",
+            item.get("duration_formatted") or "N/A",
+            item.get("title", "")[:70],
+            item.get("uploader") or "N/A",
             item.get("url") or "",
         )
 
