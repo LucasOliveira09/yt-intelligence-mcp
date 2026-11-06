@@ -9,6 +9,7 @@ from src.services.owned import get_channel_overview
 from src.services.owned_analytics import fetch_channel_health_report
 from src.services.transcripts import extract_transcript
 from src.services.video_deep_dive import get_video_deep_dive
+from src.services.video_vision import inspect_video_visuals
 
 mcp = FastMCP("yt-intelligence", dependencies=["yt-dlp", "google-api-python-client"])
 
@@ -76,6 +77,21 @@ def yt_get_video_transcript(video_url_or_id: str, lang: str = "pt") -> Dict[str,
     Extrai a transcrição/legendas de um vídeo do YouTube para dissecação de roteiro e estrutura de gancho.
     """
     return extract_transcript(video_url_or_id, lang=lang)
+
+
+@mcp.tool()
+def yt_inspect_video_visuals(
+    video_source: str,
+    interval_seconds: int = 45,
+    max_frames: int = 12,
+) -> Dict[str, Any]:
+    """
+    Inspeciona visualmente o que aparece na tela do vídeo (slides, código no editor, gráficos, telas).
+    Extrai frames-chave com FFmpeg, roda OCR com Tesseract para ler o texto da tela,
+    e disponibiliza os frames para análise visual detalhada da IA.
+    Suporta arquivo local na VPS ou URL do YouTube (requer cookies.txt na VPS para streams do YouTube).
+    """
+    return inspect_video_visuals(video_source, interval_seconds=interval_seconds, max_frames=max_frames)
 
 
 # ==========================================
