@@ -1,3 +1,4 @@
+import os
 import sys
 from typing import Optional
 import typer
@@ -126,11 +127,23 @@ def search(
 @app.command("add-account")
 def add_account(
     alias: str = typer.Argument(..., help="Identificador da conta (ex: canal_dev, galuzera)"),
+    client_id: Optional[str] = typer.Option(None, "--client-id", "-i", help="Google Client ID"),
+    client_secret: Optional[str] = typer.Option(None, "--client-secret", "-s", help="Google Client Secret"),
 ):
     """
-    Inicia o fluxo de autorização OAuth2 Google na VPS.
+    Inicia o fluxo de autorização OAuth2 Google na VPS (Sem necessidade de arquivo).
     """
-    flow_res = start_auth_flow(alias)
+    cid = client_id or os.getenv("GOOGLE_CLIENT_ID")
+    csecret = client_secret or os.getenv("GOOGLE_CLIENT_SECRET")
+
+    # If neither file nor env vars exist, ask interactively
+    from src.config import DATA_DIR
+    if not (DATA_DIR / "client_secret.json").exists() and not (cid and csecret):
+        console.print("[cyan]Configuração OAuth sem arquivo:[/cyan]")
+        cid = typer.prompt("Cole o seu Google Client ID")
+        csecret = typer.prompt("Cole o seu Google Client Secret", hide_input=True)
+
+    flow_res = start_auth_flow(alias, client_id=cid, client_secret=csecret)
     if flow_res.get("error"):
         console.print(f"[bold red]Erro:[/bold red] {flow_res.get('message')}")
         raise typer.Exit(code=1)
@@ -144,7 +157,7 @@ def add_account(
 
     code = typer.prompt("Cole aqui o código de autorização ou a URL de redirecionamento")
     with console.status("[bold green]Trocando token...[/bold green]"):
-        res = finish_auth_flow(alias, code)
+        res = finish_auth_flow(alias, code, client_id=cid, client_secret=csecret)
 
     if res.get("status") == "success":
         console.print(f"[bold green]✓ Sucesso![/bold green] Canal '[bold cyan]{res['channel_title']}[/bold cyan]' conectado como '[bold]{alias}[/bold]'.")

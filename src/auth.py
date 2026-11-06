@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import parse_qs, urlparse
@@ -33,7 +34,6 @@ def save_account_data(alias: str, data: Dict[str, Any]) -> None:
     accounts[alias] = data
     with open(ACCOUNTS_FILE, "w", encoding="utf-8") as f:
         json.dump(accounts, f, indent=2, ensure_ascii=False)
-    # Ensure restrictive file permissions
     ACCOUNTS_FILE.chmod(0o600)
 
 
@@ -61,7 +61,6 @@ def get_credentials(alias: str) -> Optional[Credentials]:
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
-            # Save refreshed credentials
             acc["credentials"] = json.loads(creds.to_json())
             save_account_data(alias, acc)
         except Exception as e:
@@ -71,25 +70,62 @@ def get_credentials(alias: str) -> Optional[Credentials]:
     return creds
 
 
-def start_auth_flow(
-    alias: str,
+def _create_flow(
+    client_id: Optional[str] = None,
+    client_secret: Optional[str] = None,
     client_secrets_path: Optional[Path] = None,
-) -> Dict[str, Any]:
-    """
-    Initiates Google OAuth flow optimized for headless VPS environments.
-    """
+) -> InstalledAppFlow:
+    """Creates an InstalledAppFlow with zero file requirements if credentials are provided."""
     secret_file = client_secrets_path or (DATA_DIR / "client_secret.json")
-    if not secret_file.exists():
-        return {
-            "error": "CLIENT_SECRET_NOT_FOUND",
-            "message": f"Arquivo client_secret.json não encontrado em {secret_file}. Baixe do Google Cloud Console e coloque lá.",
-        }
+    if secret_file.exists():
+        return InstalledAppFlow.from_client_secrets_file(
+            str(secret_file),
+            scopes=SCOPES,
+            redirect_uri="http://localhost:8080/",
+        )
 
-    flow = InstalledAppFlow.from_client_secrets_file(
-        str(secret_file),
+    cid = client_id or os.getenv("GOOGLE_CLIENT_ID")
+    csecret = client_secret or os.getenv("GOOGLE_CLIENT_SECRET")
+
+    if not cid or not csecret:
+        raise ValueError(
+            "OAuth requer Client ID e Client Secret. "
+            "Passe via comando ou defina GOOGLE_CLIENT_ID e GOOGLE_CLIENT_SECRET no ambiente."
+        )
+
+    client_config = {
+        "installed": {
+            "client_id": cid,
+            "client_secret": csecret,
+            "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+            "token_uri": "https://oauth2.googleapis.com/token",
+            "redirect_uris": ["http://localhost:8080/"],
+        }
+    }
+    return InstalledAppFlow.from_client_config(
+        client_config,
         scopes=SCOPES,
         redirect_uri="http://localhost:8080/",
     )
+
+
+def start_auth_flow(
+    alias: str,
+    client_id: Optional[str] = None,
+    client_secret: Optional[str] = None,
+    client_secrets_path: Optional[Path] = None,
+) -> Dict[str, Any]:
+    """
+    Initiates Google OAuth flow directly without requiring any file downloads.
+    """
+    try:
+        flow = _create_flow(
+            client_id=client_id,
+            client_secret=client_secret,
+            client_secrets_path=client_secrets_path,
+        )
+    except Exception as e:
+        return {"error": "CONFIG_ERROR", "message": str(e)}
 
     auth_url, _ = flow.authorization_url(
         access_type="offline",
@@ -102,10 +138,10 @@ def start_auth_flow(
         "auth_url": auth_url,
         "redirect_uri": "http://localhost:8080/",
         "instructions": (
-            "1. Abra a URL acima no seu navegador.\n"
-            "2. Autorize sua conta Google.\n"
-            "3. O navegador tentará abrir http://localhost:8080/?code=... (pode dar página em branco ou erro de conexão, é normal).\n"
-            "4. Copie a URL inteira da barra de endereços (ou o valor de code=...) e cole no terminal."
+            "1. Abra a URL acima no navegador do celular ou PC.\n"
+            "2. Faça login com a conta do seu canal do YouTube e autorize.\n"
+            "3. O navegador redirecionará para http://localhost:8080/?code=...\n"
+            "4. Copie a URL da barra de endereços (ou apenas o código) e cole aqui."
         ),
     }
 
@@ -113,17 +149,21 @@ def start_auth_flow(
 def finish_auth_flow(
     alias: str,
     raw_response_or_code: str,
+    client_id: Optional[str] = None,
+    client_secret: Optional[str] = None,
     client_secrets_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """
     Completes the OAuth flow by exchanging code for refresh tokens.
     """
-    secret_file = client_secrets_path or (DATA_DIR / "client_secret.json")
-    flow = InstalledAppFlow.from_client_secrets_file(
-        str(secret_file),
-        scopes=SCOPES,
-        redirect_uri="http://localhost:8080/",
-    )
+    try:
+        flow = _create_flow(
+            client_id=client_id,
+            client_secret=client_secret,
+            client_secrets_path=client_secrets_path,
+        )
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
 
     code = raw_response_or_code.strip()
     if "code=" in code:
@@ -136,7 +176,6 @@ def finish_auth_flow(
         creds = flow.credentials
         creds_json = json.loads(creds.to_json())
 
-        # Attempt to get channel name
         from googleapiclient.discovery import build
         service = build("youtube", "v3", credentials=creds)
         res = service.channels().list(part="snippet", mine=True).execute()
