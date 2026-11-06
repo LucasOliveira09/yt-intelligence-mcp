@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "yt-intelligence": {
+      "command": "./run_server.sh",
+      "description": "YouTube Intelligence & Channel Management MCP Server"
+    }
+  }
+}
