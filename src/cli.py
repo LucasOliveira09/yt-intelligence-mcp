@@ -8,6 +8,7 @@ from rich.table import Table
 from src.analytics.outliers import analyze_outliers
 from src.auth import finish_auth_flow, load_all_accounts, remove_account, start_auth_flow
 from src.services.competitor import fetch_channel_videos, search_youtube_videos
+from src.services.content_arbitrage import find_viral_gringo_arbitrage
 from src.services.owned import get_channel_overview
 
 app = typer.Typer(help="YT Intelligence CLI — vidIQ alternativo direto na VPS.")
@@ -154,6 +155,42 @@ def list_accounts():
             alias,
             data.get("channel_title") or "N/A",
             data.get("channel_id") or "N/A",
+        )
+
+    console.print(table)
+
+
+@app.command("arbitrage")
+def arbitrage_cmd(
+    topic: str = typer.Argument("GTA 6", help="Tópico a minerar no exterior"),
+    min_multiplier: float = typer.Option(2.5, "--multiplier", "-m", help="Multiplicador mínimo sobre a mediana do canal"),
+    min_views: int = typer.Option(50000, "--views", "-v", help="Visualizações mínimas"),
+):
+    """
+    Minera conteúdos virais gringos e gera sugestões adaptadas para o Brasil (Arbitragem de Conteúdo).
+    """
+    with console.status(f"[bold green]Minerando canais gringos para '{topic}'...[/bold green]"):
+        res = find_viral_gringo_arbitrage(
+            topic=topic,
+            min_multiplier=min_multiplier,
+            min_views=min_views,
+        )
+
+    table = Table(title=f"🔥 Oportunidades de Arbitragem Gringa: '{topic}'", show_lines=True)
+    table.add_column("Score Outlier", style="bold magenta", justify="right")
+    table.add_column("Views", justify="right")
+    table.add_column("Canal Gringo", style="cyan")
+    table.add_column("Título Original", style="white")
+    table.add_column("Adaptação Sugerida (PT-BR)", style="bold green")
+
+    for o in res.get("ranking_de_arbitragem", []):
+        sug_title = o["adaptacao_brasil"]["titulos_adaptados_ptbr"][0]
+        table.add_row(
+            o["multiplicador_de_performance"],
+            f"{o['views_obtidas']:,}",
+            f"{o['canal_gringo']} ({o['canal_handle']})",
+            o["titulo_gringo"][:60],
+            sug_title,
         )
 
     console.print(table)

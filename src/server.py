@@ -4,6 +4,7 @@ from src.analytics.outliers import analyze_outliers
 from src.auth import load_all_accounts
 from src.config import DEFAULT_COMPETITOR_LIMIT, DEFAULT_OUTLIER_THRESHOLD
 from src.services.competitor import fetch_channel_videos, search_youtube_videos
+from src.services.content_arbitrage import find_viral_gringo_arbitrage
 from src.services.niche_radar import scan_niche_radar
 from src.services.owned import get_channel_overview
 from src.services.owned_analytics import fetch_channel_health_report
@@ -201,6 +202,27 @@ def yt_search_trends(query: str, limit: int = 15) -> List[Dict[str, Any]]:
     Busca rápida de vídeos recentes no YouTube sobre um tópico sem gastar cota de API.
     """
     return search_youtube_videos(query, limit=limit)
+
+
+@mcp.tool()
+def yt_mine_viral_gringo_ideas(
+    topic: str = "GTA 6",
+    seed_channels: Optional[List[str]] = None,
+    min_multiplier: float = 2.5,
+    min_views: int = 50000,
+) -> Dict[str, Any]:
+    """
+    Minera ideias e pautas gringas virais (Arbitragem de Conteúdo Internacional).
+    Localiza vídeos em canais médios/pequenos do exterior que explodiram o algoritmo (multiplicador >= 2.5x),
+    analisa a estrutura do título e sugere a adaptação pronta para o público brasileiro (Galuzera / Dev).
+    Zero cota de API.
+    """
+    return find_viral_gringo_arbitrage(
+        topic=topic,
+        seed_channels=seed_channels,
+        min_multiplier=min_multiplier,
+        min_views=min_views,
+    )
 
 
 if __name__ == "__main__":
